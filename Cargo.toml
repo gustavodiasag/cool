@@ -3,5 +3,14 @@ name = "cool"
 version = "0.1.0"
 edition = "2024"
 
+[build-dependencies]
+cc="*"
+
 [dependencies]
+lazy_static = "1.5.0"
+num_derive = "0.4.2"
 phf = { version = "0.12.1", features = ["macros"] }
+rustc-hash = "2.1.1"
+
+tree-sitter = "0.25.9"
+tree-sitter-cool = "0.1.0"
