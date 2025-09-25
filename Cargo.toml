@@ -8,7 +8,8 @@ cc="*"
 
 [dependencies]
 lazy_static = "1.5.0"
-num_derive = "0.4.2"
+num-traits = "0.2"
+num-derive = "0.3"
 phf = { version = "0.12.1", features = ["macros"] }
 rustc-hash = "2.1.1"
 

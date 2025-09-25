@@ -2,17 +2,22 @@ use std::collections::VecDeque;
 
 use crate::{
     ast::{
-        AstNode, Class, Program, Type,
-        bindings::{Cool Cursor, Node, NodeKind},
+        self, Program,
+        bindings::{Cool, Cursor, Node, Tree},
         error::Error,
+        macros::AstNode,
     },
     util::interner::Interner,
 };
 
 pub type Result<T, E = ()> = std::result::Result<T, E>;
 
-pub fn convert(_src: &str) -> Result<Program> {
-    todo!()
+pub fn convert(src: &[u8]) -> Result<Program> {
+    let mut interner = Interner::with_capacity(1_024);
+    let tree = Tree::new(src);
+    let cursor = tree.get_root().cursor();
+
+    Converter::new(src, &mut interner, cursor).convert()
 }
 
 struct Converter<'src, 'i, 'c> {
@@ -82,34 +87,73 @@ impl Converter<'_, '_, '_> {
         }
     }
 
-    fn try_cast(&mut self, node: &Node, children: VecDeque<AstNode>) -> Result<AstNode> {
-        use Cool::*;
-
-        let ast_node = match node.kind_id().into() {
-            SourceFile => {
+    fn try_cast(&mut self, node: &Node, mut children: VecDeque<AstNode>) -> Result<AstNode> {
+        match node.kind_id().into() {
+            Cool::SourceFile => {
                 let classes = children
                     .into_iter()
-                    .filter_map(|child| {
-                        if let AstNode::Class(class) = node {
-                            Some(class)
-                        }
-                        None
-                    })
+                    .filter_map(|child| child.try_into().ok())
                     .collect();
 
-                AstNode::Program(classes)
+                Ok(ast::Program { classes }.into())
             }
-            ClassItem => {
-                let AstNode::Type(name) = children.pop_front().unwrap() else {
-                    panic!();
+            Cool::ClassItem => {
+                let class = ast::Class {
+                    name: consume(children.pop_front())?,
+                    inherits: consume(children.pop_front()).ok(),
+                    features: consume(children.pop_front())?,
                 };
-                let AstNode::Type(inherits) = children.pop_front() else {
-                    None
-                };
-            }
-            _ => todo!(),
-        };
 
-        Ok(ast_node)
+                Ok(class.into())
+            }
+            Cool::FieldDeclarationList => {
+                let features = children
+                    .into_iter()
+                    .map(TryFrom::try_from)
+                    .collect::<Result<_>>()?;
+
+                Ok(ast::Features(features).into())
+            }
+            Cool::AttributeDeclaration => {
+                let attribute = ast::Attribute {
+                    name: consume(children.pop_front())?,
+                    ty: consume(children.pop_front())?,
+                    initializer: consume(children.pop_front()).ok(),
+                };
+
+                Ok(ast::Feature::Attribute(attribute).into())
+            }
+            Cool::AliasFieldIdentifier | Cool::FieldIdentifier => {
+                let name = node.utf8_text(self.src).unwrap();
+
+                Ok(ast::Ident {
+                    name: self.interner.intern(name),
+                }
+                .into())
+            }
+            Cool::TypeIdentifier
+            | Cool::Bool
+            | Cool::Int
+            | Cool::Io
+            | Cool::Object
+            | Cool::String
+            | Cool::SelfType => {
+                let name = node.utf8_text(self.src).unwrap();
+                let ident = ast::Ident {
+                    name: self.interner.intern(name),
+                };
+
+                Ok(ast::Type(ident).into())
+            }
+            _ => Err(()),
+        }
     }
+}
+
+fn consume<T>(maybe: Option<AstNode>) -> Result<T>
+where
+    T: TryFrom<AstNode, Error = ()>,
+{
+    let node = maybe.ok_or(())?;
+    T::try_from(node)
 }

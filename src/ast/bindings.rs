@@ -1,3 +1,5 @@
+use num_derive::FromPrimitive;
+
 use tree_sitter::Node as OtherNode;
 use tree_sitter::Tree as OtherTree;
 use tree_sitter::{Parser, TreeCursor};
@@ -182,7 +184,7 @@ impl<'a> Node<'a> {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, FromPrimitive)]
 pub enum Cool {
     End = 0,
     Class = 1,
@@ -288,8 +290,8 @@ pub enum Cool {
 }
 
 impl From<Cool> for &'static str {
-    fn from(token: Cool) -> Self {
-        match token {
+    fn from(rule: Cool) -> Self {
+        match rule {
             Cool::End => "end",
             Cool::Class => "class",
             Cool::Inherits => "inherits",
@@ -391,8 +393,9 @@ impl From<Cool> for &'static str {
     }
 }
 
-impl from<u16> for cool {
-    fn from(value: u16) -> Self {
-        num::FromPrimitive::from_u16(x).unwrap_or(Self::Error)
+impl From<u16> for Cool {
+    #[inline(always)]
+    fn from(x: u16) -> Self {
+        num_traits::FromPrimitive::from_u16(x).unwrap_or(Self::Error)
     }
 }

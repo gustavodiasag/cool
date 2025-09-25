@@ -3,17 +3,7 @@ use crate::util::interner::InternedIdx;
 pub mod bindings;
 pub mod converter;
 mod error;
-
-#[derive(Debug)]
-pub enum AstNode {
-    Program(Program),
-    Class(Class),
-    Features(Features),
-    Feature(Feature),
-    Attribute(Attribute),
-    Type(Type),
-    Ident(Ident),
-}
+mod macros;
 
 #[derive(Debug)]
 pub struct Program {
@@ -40,7 +30,7 @@ pub enum Feature {
 pub struct Attribute {
     pub name: Ident,
     pub ty: Type,
-    pub initializer: Option<Expression>,
+    pub initializer: Option<Expr>,
 }
 
 #[derive(Debug)]
@@ -48,7 +38,7 @@ pub struct Method {
     pub name: Ident,
     pub params: Vec<Param>,
     pub return_ty: Type,
-    pub body: Expression,
+    pub body: Expr,
 }
 
 #[derive(Debug)]
@@ -58,34 +48,34 @@ pub struct Param {
 }
 
 #[derive(Debug)]
-pub enum Expression {
+pub enum Expr {
     Assignment {
         name: Ident,
-        right: Box<Expression>,
+        right: Box<Expr>,
     },
     Dispatch {
         qualifier: Option<Qualifier>,
         method: Ident,
-        args: Vec<Expression>,
+        args: Vec<Expr>,
     },
     Conditional {
-        condition: Box<Expression>,
-        consequence: Box<Expression>,
-        alternative: Box<Expression>,
+        condition: Box<Expr>,
+        consequence: Box<Expr>,
+        alternative: Box<Expr>,
     },
     Repeat {
-        condition: Box<Expression>,
-        body: Box<Expression>,
+        condition: Box<Expr>,
+        body: Box<Expr>,
     },
     Block {
-        body: Vec<Expression>,
+        body: Vec<Expr>,
     },
     Let {
         bindings: Vec<Binding>,
-        body: Box<Expression>,
+        body: Box<Expr>,
     },
     Case {
-        value: Box<Expression>,
+        value: Box<Expr>,
         arms: Vec<CaseArm>,
     },
     New {
@@ -93,15 +83,15 @@ pub enum Expression {
     },
     Unary {
         op: UnaryOp,
-        right: Box<Expression>,
+        right: Box<Expr>,
     },
     Binary {
         op: BinaryOp,
-        left: Box<Expression>,
-        right: Box<Expression>,
+        left: Box<Expr>,
+        right: Box<Expr>,
     },
     Paren {
-        value: Box<Expression>,
+        value: Box<Expr>,
     },
     Ident(Ident),
     Int(u64),
@@ -110,7 +100,7 @@ pub enum Expression {
 
 #[derive(Debug)]
 pub struct Qualifier {
-    value: Box<Expression>,
+    value: Box<Expr>,
     parent: Option<Type>,
 }
 
@@ -118,14 +108,14 @@ pub struct Qualifier {
 pub struct Binding {
     name: Ident,
     ty: Type,
-    right: Option<Expression>,
+    right: Option<Expr>,
 }
 
 #[derive(Debug)]
 pub struct CaseArm {
     name: Ident,
     ty: Type,
-    value: Box<Expression>,
+    value: Box<Expr>,
 }
 
 #[derive(Debug)]
