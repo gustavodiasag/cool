@@ -7,7 +7,6 @@ edition = "2024"
 cc="*"
 
 [dependencies]
-lazy_static = "1.5.0"
 num-traits = "0.2"
 num-derive = "0.3"
 phf = { version = "0.12.1", features = ["macros"] }

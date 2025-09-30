@@ -3,15 +3,25 @@ use std::{
     fs,
 };
 
-use cool::ast::converter;
+use cool::{
+    ast::{bindings::Tree, converter},
+    util::interner::Interner,
+};
 
 fn main() {
     let args: Vec<String> = env::args().collect();
     let file = &args[1];
 
-    let input = fs::read(file).unwrap();
+    let src = fs::read(file).unwrap();
 
-    let program = converter::convert(&input).unwrap();
+    let mut interner = Interner::with_capacity(1_024);
+    let tree = Tree::new(&src);
 
-    println!("{:#?}", program);
+    match converter::convert(&src, &tree, &mut interner) {
+        Ok(program) => println!("{:#?}", program),
+        Err((program, errors)) => {
+            println!("{:#?}", program);
+            println!("{:#?}", errors);
+        }
+    }
 }

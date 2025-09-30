@@ -1,15 +1,13 @@
 use num_derive::FromPrimitive;
 
-use tree_sitter::Node as OtherNode;
-use tree_sitter::Tree as OtherTree;
-use tree_sitter::{Parser, TreeCursor};
+use crate::util::span::Span;
 
 #[derive(Clone, Debug)]
-pub struct Tree(OtherTree);
+pub struct Tree(tree_sitter::Tree);
 
 impl Tree {
     pub fn new(code: &[u8]) -> Self {
-        let mut parser = Parser::new();
+        let mut parser = tree_sitter::Parser::new();
         parser
             .set_language(&tree_sitter_cool::LANGUAGE.into())
             .unwrap();
@@ -23,7 +21,7 @@ impl Tree {
 }
 
 #[derive(Clone)]
-pub struct Cursor<'a>(TreeCursor<'a>);
+pub struct Cursor<'a>(tree_sitter::TreeCursor<'a>);
 
 impl<'a> Cursor<'a> {
     pub(crate) fn reset(&mut self, node: &Node<'a>) {
@@ -44,23 +42,27 @@ impl<'a> Cursor<'a> {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub struct Node<'a>(OtherNode<'a>);
+pub struct Node<'a>(tree_sitter::Node<'a>);
 
 impl<'a> Node<'a> {
-    pub fn has_error(&self) -> bool {
+    pub(crate) fn has_error(&self) -> bool {
         self.0.has_error()
+    }
+
+    pub fn is_missing(&self) -> bool {
+        self.0.is_missing()
     }
 
     pub(crate) fn id(&self) -> usize {
         self.0.id()
     }
 
-    pub(crate) fn kind(&self) -> &'static str {
+    pub(crate) fn rule(&self) -> &'static str {
         self.0.kind()
     }
 
-    pub(crate) fn kind_id(&self) -> u16 {
-        self.0.kind_id()
+    pub(crate) fn kind(&self) -> Cool {
+        self.0.kind_id().into()
     }
 
     pub(crate) fn utf8_text(&self, data: &'a [u8]) -> Option<&'a str> {
@@ -73,6 +75,13 @@ impl<'a> Node<'a> {
 
     pub(crate) fn end_byte(&self) -> usize {
         self.0.end_byte()
+    }
+
+    pub(crate) fn span(&self) -> Span {
+        let (srow, scol) = self.start_position();
+        let (erow, ecol) = self.end_position();
+
+        (srow + 1, scol + 1, erow + 1, ecol + 1)
     }
 
     pub(crate) fn start_position(&self) -> (usize, usize) {
@@ -222,7 +231,7 @@ pub enum Cool {
     Isvoid = 33,
     Not = 34,
     Tilde = 35,
-    LtEq = 36,
+    Lte = 36,
     Lt = 37,
     Eq = 38,
     Plus = 39,
@@ -276,7 +285,7 @@ pub enum Cool {
     StringLiteral = 87,
     InlineComment = 88,
     BlockComment = 89,
-    FieldIdentifier = 90,
+    AliasFieldIdentifier = 90,
     SourceFileRepeat1 = 91,
     FieldDeclarationListRepeat1 = 92,
     ParametersRepeat1 = 93,
@@ -286,111 +295,7 @@ pub enum Cool {
     CaseExpressionRepeat1 = 97,
     StringLiteralRepeat1 = 98,
     BlockCommentRepeat1 = 99,
-    AliasFieldIdentifier = 100,
-}
-
-impl From<Cool> for &'static str {
-    fn from(rule: Cool) -> Self {
-        match rule {
-            Cool::End => "end",
-            Cool::Class => "class",
-            Cool::Inherits => "inherits",
-            Cool::Semi => ";",
-            Cool::LBrace => "{",
-            Cool::RBrace => "}",
-            Cool::Colon => ":",
-            Cool::LtDash => "<-",
-            Cool::LParen => "(",
-            Cool::Comma => ",",
-            Cool::RParen => ")",
-            Cool::Bool | Cool::Int | Cool::Io | Cool::Object | Cool::String | Cool::SelfType => {
-                "primitive_type"
-            }
-            Cool::At => "@",
-            Cool::Dot => ".",
-            Cool::If => "if",
-            Cool::Then => "then",
-            Cool::Else => "else",
-            Cool::Fi => "fi",
-            Cool::While => "while",
-            Cool::Loop => "loop",
-            Cool::Pool => "pool",
-            Cool::Let => "let",
-            Cool::In => "in",
-            Cool::Case => "case",
-            Cool::Of => "of",
-            Cool::Esac => "esac",
-            Cool::EqGt => "=>",
-            Cool::New => "new",
-            Cool::Isvoid => "isvoid",
-            Cool::Not => "not",
-            Cool::Tilde => "~",
-            Cool::LtEq => "<=",
-            Cool::Lt => "<",
-            Cool::Eq => "=",
-            Cool::Plus => "+",
-            Cool::Dash => "-",
-            Cool::Star => "*",
-            Cool::Slash => "/",
-            Cool::True => "true",
-            Cool::False => "false",
-            Cool::IntegerLiteral => "integer_literal",
-            Cool::DQuote | Cool::DQuote2 => "\"",
-            Cool::EscapeSequence => "escape_sequence",
-            Cool::DashDash => "--",
-            Cool::InlineCommentToken1 => "inline_comment_token1",
-            Cool::LParenStar => "(*",
-            Cool::BlockCommentToken1 => "block_comment_token1",
-            Cool::BlockCommentToken2 => "block_comment_token2",
-            Cool::StarRparen => "*)",
-            Cool::Identifier => "identifier",
-            Cool::TypeIdentifier => "type_identifier",
-            Cool::SelfIdentifier => "self",
-            Cool::StringContent => "string_content",
-            Cool::Error => "_error_sentinel",
-            Cool::SourceFile => "source_file",
-            Cool::ClassItem => "class_item",
-            Cool::FieldDeclarationList => "field_declaration_list",
-            Cool::AttributeDeclaration => "attribute_declaration",
-            Cool::MethodDeclaration => "method_declaration",
-            Cool::Parameters => "parameters",
-            Cool::Parameter => "parameter",
-            Cool::Type => "_type",
-            Cool::Expression => "_expression",
-            Cool::AssignmentExpression => "assignment_expression",
-            Cool::DispatchExpression => "dispatch_expression",
-            Cool::Arguments => "arguments",
-            Cool::IfExpression => "if_expression",
-            Cool::WhileExpression => "while_expression",
-            Cool::Block => "block",
-            Cool::LetExpression => "let_expression",
-            Cool::CaseExpression => "case_expression",
-            Cool::CaseArm => "case_arm",
-            Cool::CasePattern => "case_pattern",
-            Cool::NewExpression => "new_expression",
-            Cool::IsvoidExpression => "isvoid_expression",
-            Cool::NotExpression => "not_expression",
-            Cool::UnaryExpression => "unary_expression",
-            Cool::BinaryExpression => "binary_expression",
-            Cool::ParenthesizedExpression => "parenthesized_expression",
-            Cool::Literal => "_literal",
-            Cool::BooleanLiteral => "boolean_literal",
-            Cool::StringLiteral => "string_literal",
-            Cool::InlineComment => "inline_comment",
-            Cool::BlockComment => "block_comment",
-            Cool::FieldIdentifier => "field_identifier",
-            Cool::SourceFileRepeat1 => "source_file_repeat1",
-            Cool::FieldDeclarationListRepeat1 => "field_declaration_list_repeat1",
-            Cool::ParametersRepeat1 => "parameters_repeat1",
-            Cool::ArgumentsRepeat1 => "arguments_repeat1",
-            Cool::BlockRepeat1 => "block_repeat1",
-            Cool::LetExpressionRepeat1 => "let_expression_repeat1",
-            Cool::CaseExpressionRepeat1 => "case_expression_repeat1",
-            Cool::StringLiteralRepeat1 => "string_literal_repeat1",
-            Cool::BlockCommentRepeat1 => "block_comment_repeat1",
-            Cool::AliasFieldIdentifier => "field_identifier",
-        }
-    }
+    FieldIdentifier = 100,
 }
 
 impl From<u16> for Cool {

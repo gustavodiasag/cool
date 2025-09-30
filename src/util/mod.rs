@@ -3,7 +3,7 @@ pub mod interner {
 
     use rustc_hash::FxHashMap;
 
-    #[derive(Debug)]
+    #[derive(Debug, PartialEq, Eq)]
     pub struct InternedIdx(u32);
 
     pub struct Interner {
@@ -34,5 +34,15 @@ pub mod interner {
         pub fn lookup(&self, idx: &InternedIdx) -> &str {
             &self.vec[idx.0 as usize]
         }
+    }
+}
+
+pub mod span {
+    pub type Span = (usize, usize, usize, usize);
+
+    #[derive(Debug, PartialEq)]
+    pub struct Spanned<T> {
+        pub inner: T,
+        pub span: Span,
     }
 }
