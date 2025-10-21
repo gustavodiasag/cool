@@ -3,8 +3,9 @@ use std::collections::VecDeque;
 use crate::{
     ast::{
         self, AstNode,
-        bindings::{Cool, Cursor, Node, Tree},
+        bindings::{Cursor, Node, Tree},
     },
+    language::Cool,
     util::{interner::Interner, span::Spanned},
 };
 
@@ -37,6 +38,7 @@ impl Converter<'_, '_> {
         interner: &'i mut Interner,
     ) -> Converter<'src, 'i> {
         let cursor = tree.get_root().cursor();
+
         Converter {
             src,
             interner,
@@ -47,43 +49,36 @@ impl Converter<'_, '_> {
 
     fn convert(&mut self) -> Option<ast::Program> {
         let root = self.cursor.node();
+        let mut state = ConversionState::new();
 
-        let mut nodes: Vec<Node> = Vec::with_capacity(root.descendant_count());
-        let mut children: Vec<VecDeque<AstNode>> = Vec::new();
-
-        nodes.push(root);
-        children.push(VecDeque::new());
+        state.push_entry(root);
         // The idea is to build the internal AST from bottom-to-up and from
         // left-to-right.
         //
         // Once the array of children is built, the node itself can be
         // constructed until the root.
         loop {
-            let node = nodes.last()?;
+            let node = state.last_node()?;
             self.cursor.reset(node);
 
             if self.cursor.goto_first_child() {
                 let node = self.cursor.node();
-                children.push(VecDeque::with_capacity(node.child_count()));
-                nodes.push(node);
+                state.push_entry(node);
             } else {
                 loop {
-                    let node = nodes.pop()?;
-                    let node_children = children.pop()?;
+                    let (node, children) = state.pop_entry()?;
 
-                    if let Ok(ast_node) = self.try_cast(&node, node_children) {
-                        if children.is_empty() {
-                            let AstNode::Program(program) = ast_node else {
-                                return None;
+                    if let Ok(ast_node) = self.try_cast(&node, children) {
+                        if state.is_empty() {
+                            return match ast_node {
+                                AstNode::Program(p) => Some(p),
+                                _ => None,
                             };
-                            return Some(program);
                         }
-                        children.last_mut()?.push_back(ast_node);
+                        state.last_children_mut()?.push_back(ast_node);
                     }
                     if let Some(next) = node.next_sibling() {
-                        children.push(VecDeque::with_capacity(next.child_count()));
-                        nodes.push(next);
-
+                        state.push_entry(next);
                         break;
                     }
                 }
@@ -113,8 +108,28 @@ impl Converter<'_, '_> {
         })
     }
 
+    fn convert_binop(&mut self, node: &Node) -> Option<ast::BinaryOp> {
+        let rule = node.child(1)?.rule();
+
+        match rule {
+            Cool::Plus => Some(ast::BinaryOp::Add),
+            Cool::Dash => Some(ast::BinaryOp::Sub),
+            Cool::Star => Some(ast::BinaryOp::Mul),
+            Cool::Slash => Some(ast::BinaryOp::Div),
+            Cool::Lt => Some(ast::BinaryOp::Lt),
+            Cool::Lte => Some(ast::BinaryOp::Lte),
+            Cool::Eq => Some(ast::BinaryOp::Eq),
+            _ => {
+                self.error(Error::InvalidSyntax);
+                None
+            }
+        }
+    }
+}
+
+impl Converter<'_, '_> {
     fn try_cast(&mut self, node: &Node, mut children: VecDeque<AstNode>) -> Result<AstNode> {
-        match node.kind() {
+        match node.rule() {
             Cool::SourceFile => {
                 let program = ast::Program {
                     classes: self.consume_non_zero(children)?,
@@ -124,9 +139,9 @@ impl Converter<'_, '_> {
             }
             Cool::ClassItem => {
                 let class = ast::Class {
-                    name: self.consume_as(&mut children)?,
+                    name: self.consume(&mut children)?,
                     inherits: self.consume_opt(&mut children),
-                    features: self.consume_as(&mut children)?,
+                    features: self.consume(&mut children)?,
                 };
 
                 Ok(class.into())
@@ -138,8 +153,8 @@ impl Converter<'_, '_> {
             }
             Cool::AttributeDeclaration => {
                 let attribute = ast::Attribute {
-                    name: self.consume_as(&mut children)?,
-                    ty: self.consume_as(&mut children)?,
+                    name: self.consume(&mut children)?,
+                    ty: self.consume(&mut children)?,
                     initializer: self.consume_opt(&mut children),
                 };
 
@@ -147,10 +162,10 @@ impl Converter<'_, '_> {
             }
             Cool::MethodDeclaration => {
                 let method = ast::Method {
-                    name: self.consume_as(&mut children)?,
-                    params: self.consume_as(&mut children)?,
-                    return_ty: self.consume_as(&mut children)?,
-                    body: self.consume_as(&mut children)?,
+                    name: self.consume(&mut children)?,
+                    params: self.consume(&mut children)?,
+                    return_ty: self.consume(&mut children)?,
+                    body: self.consume(&mut children)?,
                 };
 
                 Ok(ast::Feature::Method(method).into())
@@ -162,16 +177,16 @@ impl Converter<'_, '_> {
             }
             Cool::Parameter => {
                 let param = ast::Param {
-                    name: self.consume_as(&mut children)?,
-                    ty: self.consume_as(&mut children)?,
+                    name: self.consume(&mut children)?,
+                    ty: self.consume(&mut children)?,
                 };
 
                 Ok(param.into())
             }
             Cool::AssignmentExpression => {
                 let expr = ast::Expr::Assignment {
-                    name: self.consume_as(&mut children)?,
-                    right: Box::new(self.consume_as(&mut children)?),
+                    name: self.consume(&mut children)?,
+                    right: Box::new(self.consume(&mut children)?),
                 };
 
                 Ok(expr.into())
@@ -179,7 +194,7 @@ impl Converter<'_, '_> {
             Cool::DispatchExpression => {
                 let expr = ast::Expr::Dispatch {
                     qualifier: self.consume_opt(&mut children),
-                    method: self.consume_as(&mut children)?,
+                    method: self.consume(&mut children)?,
                     args: self.consume_all(children)?,
                 };
 
@@ -187,17 +202,17 @@ impl Converter<'_, '_> {
             }
             Cool::IfExpression => {
                 let expr = ast::Expr::Conditional {
-                    condition: Box::new(self.consume_as(&mut children)?),
-                    consequence: Box::new(self.consume_as(&mut children)?),
-                    alternative: Box::new(self.consume_as(&mut children)?),
+                    condition: Box::new(self.consume(&mut children)?),
+                    consequence: Box::new(self.consume(&mut children)?),
+                    alternative: Box::new(self.consume(&mut children)?),
                 };
 
                 Ok(expr.into())
             }
             Cool::WhileExpression => {
                 let expr = ast::Expr::Repeat {
-                    condition: Box::new(self.consume_as(&mut children)?),
-                    body: Box::new(self.consume_as(&mut children)?),
+                    condition: Box::new(self.consume(&mut children)?),
+                    body: Box::new(self.consume(&mut children)?),
                 };
 
                 Ok(expr.into())
@@ -209,9 +224,31 @@ impl Converter<'_, '_> {
 
                 Ok(expr.into())
             }
+            Cool::LetExpression => {
+                let expr = ast::Expr::Let {
+                    bindings: self.consume(&mut children)?,
+                    body: Box::new(self.consume(&mut children)?),
+                };
+
+                Ok(expr.into())
+            }
+            Cool::Bindings => {
+                let bindings = ast::LetBindings(self.consume_non_zero(children)?);
+
+                Ok(bindings.into())
+            }
+            Cool::Binding => {
+                let binding = ast::LetBinding {
+                    name: self.consume(&mut children)?,
+                    ty: self.consume(&mut children)?,
+                    right: self.consume_opt(&mut children),
+                };
+
+                Ok(binding.into())
+            }
             Cool::CaseExpression => {
                 let expr = ast::Expr::Case {
-                    value: Box::new(self.consume_as(&mut children)?),
+                    value: Box::new(self.consume(&mut children)?),
                     body: self.consume_all(children)?,
                 };
 
@@ -219,23 +256,23 @@ impl Converter<'_, '_> {
             }
             Cool::CaseArm => {
                 let arm = ast::CaseArm {
-                    pat: self.consume_as(&mut children)?,
-                    value: Box::new(self.consume_as(&mut children)?),
+                    pat: self.consume(&mut children)?,
+                    value: Box::new(self.consume(&mut children)?),
                 };
 
                 Ok(arm.into())
             }
             Cool::CasePattern => {
                 let pat = ast::CasePattern {
-                    name: self.consume_as(&mut children)?,
-                    ty: self.consume_as(&mut children)?,
+                    name: self.consume(&mut children)?,
+                    ty: self.consume(&mut children)?,
                 };
 
                 Ok(pat.into())
             }
             Cool::NewExpression => {
                 let expr = ast::Expr::New {
-                    ty: self.consume_as(&mut children)?,
+                    ty: self.consume(&mut children)?,
                 };
 
                 Ok(expr.into())
@@ -243,7 +280,7 @@ impl Converter<'_, '_> {
             Cool::IsvoidExpression => {
                 let expr = ast::Expr::Unary {
                     op: ast::UnaryOp::IsVoid,
-                    right: Box::new(self.consume_as(&mut children)?),
+                    right: Box::new(self.consume(&mut children)?),
                 };
 
                 Ok(expr.into())
@@ -251,7 +288,7 @@ impl Converter<'_, '_> {
             Cool::UnaryExpression => {
                 let expr = ast::Expr::Unary {
                     op: ast::UnaryOp::Complement,
-                    right: Box::new(self.consume_as(&mut children)?),
+                    right: Box::new(self.consume(&mut children)?),
                 };
 
                 Ok(expr.into())
@@ -259,24 +296,31 @@ impl Converter<'_, '_> {
             Cool::NotExpression => {
                 let expr = ast::Expr::Unary {
                     op: ast::UnaryOp::Not,
-                    right: Box::new(self.consume_as(&mut children)?),
+                    right: Box::new(self.consume(&mut children)?),
                 };
 
                 Ok(expr.into())
             }
             Cool::BinaryExpression => {
+                let op = self.convert_binop(node).ok_or(())?;
+
                 let expr = ast::Expr::Binary {
-                    op: node.child(1).unwrap().kind().into(),
-                    left: Box::new(self.consume_as(&mut children)?),
-                    right: Box::new(self.consume_as(&mut children)?),
+                    op,
+                    left: Box::new(self.consume(&mut children)?),
+                    right: Box::new(self.consume(&mut children)?),
                 };
 
                 Ok(expr.into())
             }
             Cool::ParenthesizedExpression => {
                 let expr = ast::Expr::Paren {
-                    value: Box::new(self.consume_as(&mut children)?),
+                    value: Box::new(self.consume(&mut children)?),
                 };
+
+                Ok(expr.into())
+            }
+            Cool::StringLiteral => {
+                let expr = ast::Expr::String(extract::string(self.src, node));
 
                 Ok(expr.into())
             }
@@ -302,9 +346,15 @@ impl Converter<'_, '_> {
                 Ok(ty.into())
             }
             Cool::Identifier | Cool::FieldIdentifier | Cool::SelfIdentifier => {
-                let ident = self.convert_ident(node).ok_or(())?;
-
-                Ok(ident.into())
+                let to_ast = |ident: ast::Ident| {
+                    println!("{:?}", node.parent().unwrap().rule());
+                    if node.parent().unwrap().rule().is_expr() {
+                        ast::Expr::Ident(ident).into()
+                    } else {
+                        ident.into()
+                    }
+                };
+                self.convert_ident(node).map(to_ast).ok_or(())
             }
             Cool::Error => {
                 self.error(Error::InvalidSyntax);
@@ -313,9 +363,16 @@ impl Converter<'_, '_> {
             _ => Err(()),
         }
     }
-}
 
-impl Converter<'_, '_> {
+    fn consume<T>(&mut self, children: &mut VecDeque<AstNode>) -> Result<T>
+    where
+        T: TryFrom<AstNode, Error = Error>,
+    {
+        let child = children.pop_front().ok_or(())?;
+
+        T::try_from(child).map_err(|err| self.error(err))
+    }
+
     fn consume_opt<T>(&mut self, children: &mut VecDeque<AstNode>) -> Option<T>
     where
         T: TryFrom<AstNode, Error = Error>,
@@ -323,22 +380,13 @@ impl Converter<'_, '_> {
         let child = children.pop_front()?;
 
         match T::try_from(child) {
-            Ok(val) => Some(val),
+            Ok(value) => Some(value),
             Err(Error::Unexpected(other)) => {
                 children.push_back(other);
                 None
             }
             Err(_) => unreachable!(),
         }
-    }
-
-    fn consume_as<T>(&mut self, children: &mut VecDeque<AstNode>) -> Result<T>
-    where
-        T: TryFrom<AstNode, Error = Error>,
-    {
-        let child = children.pop_front().ok_or(())?;
-
-        T::try_from(child).map_err(|err| self.error(err))
     }
 
     fn consume_all<T>(&mut self, children: VecDeque<AstNode>) -> Result<Vec<T>>
@@ -373,8 +421,54 @@ impl Converter<'_, '_> {
     }
 }
 
+struct ConversionState<'a> {
+    node_stack: Vec<Node<'a>>,
+    child_stack: Vec<VecDeque<AstNode>>,
+}
+
+impl<'a> ConversionState<'a> {
+    fn new() -> ConversionState<'a> {
+        ConversionState {
+            node_stack: Vec::new(),
+            child_stack: Vec::new(),
+        }
+    }
+
+    fn push_entry(&mut self, node: Node<'a>) {
+        self.child_stack.push(VecDeque::new());
+        self.node_stack.push(node);
+    }
+
+    fn pop_entry(&mut self) -> Option<(Node<'a>, VecDeque<AstNode>)> {
+        let node = self.node_stack.pop();
+        let children = self.child_stack.pop();
+
+        node.zip(children)
+    }
+
+    fn last_node(&self) -> Option<&Node<'a>> {
+        self.node_stack.last()
+    }
+
+    fn last_node_mut(&mut self) -> Option<&mut Node<'a>> {
+        self.node_stack.last_mut()
+    }
+
+    fn last_children(&self) -> Option<&VecDeque<AstNode>> {
+        self.child_stack.last()
+    }
+
+    fn last_children_mut(&mut self) -> Option<&mut VecDeque<AstNode>> {
+        self.child_stack.last_mut()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.child_stack.is_empty()
+    }
+}
+
 mod extract {
-    use crate::ast::bindings::{Cool, Node};
+    use crate::ast::bindings::Node;
 
     pub fn trivial<T>(src: &[u8], node: &Node) -> T
     where
@@ -384,12 +478,21 @@ mod extract {
         lexeme(src, node).parse::<T>().unwrap()
     }
 
+    pub fn string(src: &[u8], node: &Node) -> Box<str> {
+        let content = node.child(1);
+
+        match content {
+            Some(c) => lexeme(src, &c).to_string().into_boxed_str(),
+            _ => Box::from(""),
+        }
+    }
+
     pub fn lexeme<'a>(src: &'a [u8], node: &'a Node) -> &'a str {
         node.utf8_text(src).unwrap()
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub enum Error {
     Unexpected(AstNode),
     EmptyConstruct,

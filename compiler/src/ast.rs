@@ -1,42 +1,63 @@
-use crate::{
-    ast::{bindings::Cool, macros::ast_node},
-    util::interner::InternedIdx,
-};
+use crate::{ast::macros::ast_node, util::interner::InternedIdx};
 
 pub mod bindings;
 pub mod converter;
 
 mod macros;
 
-#[derive(Debug, Default, PartialEq, Eq)]
+ast_node! {
+    #[derive(Debug)]
+    pub enum AstNode {
+        Program(Program),
+        Class(Class),
+        Features(Features),
+        Feature(Feature),
+        Attribute(Attribute),
+        Method(Method),
+        Params(Params),
+        Param(Param),
+        Expr(Expr),
+        Qualifier(Qualifier),
+        LetBindings(LetBindings),
+        LetBinding(LetBinding),
+        CaseArm(CaseArm),
+        CasePattern(CasePattern),
+        UnaryOp(UnaryOp),
+        BinaryOp(BinaryOp),
+        Type(Type),
+        Ident(Ident),
+    }
+}
+
+#[derive(Debug, Default)]
 pub struct Program {
     pub classes: Vec<Class>,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct Class {
     pub name: Type,
     pub inherits: Option<Type>,
     pub features: Features,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct Features(pub Vec<Feature>);
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub enum Feature {
     Attribute(Attribute),
     Method(Method),
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct Attribute {
     pub name: Ident,
     pub ty: Type,
     pub initializer: Option<Expr>,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct Method {
     pub name: Ident,
     pub params: Params,
@@ -44,16 +65,16 @@ pub struct Method {
     pub body: Expr,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct Params(pub Vec<Param>);
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct Param {
     pub name: Ident,
     pub ty: Type,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub enum Expr {
     Assignment {
         name: Ident,
@@ -77,7 +98,7 @@ pub enum Expr {
         body: Vec<Expr>,
     },
     Let {
-        bindings: Vec<Binding>,
+        bindings: LetBindings,
         body: Box<Expr>,
     },
     Case {
@@ -100,43 +121,47 @@ pub enum Expr {
         value: Box<Expr>,
     },
     Ident(Ident),
+    String(Box<str>),
     Int(u64),
     Bool(bool),
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct Qualifier {
     value: Box<Expr>,
     parent: Option<Type>,
 }
 
-#[derive(Debug, PartialEq, Eq)]
-pub struct Binding {
+#[derive(Debug)]
+pub struct LetBindings(pub Vec<LetBinding>);
+
+#[derive(Debug)]
+pub struct LetBinding {
     name: Ident,
     ty: Type,
     right: Option<Expr>,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct CaseArm {
     pat: CasePattern,
     value: Box<Expr>,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct CasePattern {
     name: Ident,
     ty: Type,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub enum UnaryOp {
     IsVoid,
     Complement,
     Not,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub enum BinaryOp {
     Add,
     Sub,
@@ -147,50 +172,10 @@ pub enum BinaryOp {
     Eq,
 }
 
-impl From<bindings::Cool> for BinaryOp {
-    fn from(value: Cool) -> Self {
-        match value {
-            Cool::Plus => BinaryOp::Add,
-            Cool::Dash => BinaryOp::Sub,
-            Cool::Star => BinaryOp::Mul,
-            Cool::Slash => BinaryOp::Div,
-            Cool::Lt => BinaryOp::Lt,
-            Cool::Lte => BinaryOp::Lte,
-            Cool::Eq => BinaryOp::Eq,
-            _ => {
-                println!("{:?}", value);
-                todo!()
-            }
-        }
-    }
-}
-
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct Type(pub Ident);
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct Ident {
     pub name: InternedIdx,
-}
-
-ast_node! {
-    #[derive(Debug, PartialEq, Eq)]
-    pub enum AstNode {
-        Program(Program),
-        Class(Class),
-        Features(Features),
-        Feature(Feature),
-        Attribute(Attribute),
-        Method(Method),
-        Params(Params),
-        Param(Param),
-        Expr(Expr),
-        Qualifier(Qualifier),
-        CaseArm(CaseArm),
-        CasePattern(CasePattern),
-        UnaryOp(UnaryOp),
-        BinaryOp(BinaryOp),
-        Type(Type),
-        Ident(Ident),
-    }
 }

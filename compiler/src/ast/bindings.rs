@@ -1,6 +1,4 @@
-use num_derive::FromPrimitive;
-
-use crate::util::span::Span;
+use crate::{language::Cool, util::span::Span};
 
 #[derive(Clone, Debug)]
 pub struct Tree(tree_sitter::Tree);
@@ -57,11 +55,11 @@ impl<'a> Node<'a> {
         self.0.id()
     }
 
-    pub(crate) fn rule(&self) -> &'static str {
+    pub(crate) fn kind(&self) -> &'static str {
         self.0.kind()
     }
 
-    pub(crate) fn kind(&self) -> Cool {
+    pub(crate) fn rule(&self) -> Cool {
         self.0.kind_id().into()
     }
 
@@ -190,117 +188,5 @@ impl<'a> Node<'a> {
             }
         }
         res
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, FromPrimitive)]
-pub enum Cool {
-    End = 0,
-    Class = 1,
-    Inherits = 2,
-    Semi = 3,
-    LBrace = 4,
-    RBrace = 5,
-    Colon = 6,
-    LtDash = 7,
-    LParen = 8,
-    Comma = 9,
-    RParen = 10,
-    Bool = 11,
-    Int = 12,
-    Io = 13,
-    Object = 14,
-    String = 15,
-    SelfType = 16,
-    At = 17,
-    Dot = 18,
-    If = 19,
-    Then = 20,
-    Else = 21,
-    Fi = 22,
-    While = 23,
-    Loop = 24,
-    Pool = 25,
-    Let = 26,
-    In = 27,
-    Case = 28,
-    Of = 29,
-    Esac = 30,
-    EqGt = 31,
-    New = 32,
-    Isvoid = 33,
-    Not = 34,
-    Tilde = 35,
-    Lte = 36,
-    Lt = 37,
-    Eq = 38,
-    Plus = 39,
-    Dash = 40,
-    Star = 41,
-    Slash = 42,
-    True = 43,
-    False = 44,
-    IntegerLiteral = 45,
-    DQuote = 46,
-    DQuote2 = 47,
-    EscapeSequence = 48,
-    DashDash = 49,
-    InlineCommentToken1 = 50,
-    LParenStar = 51,
-    BlockCommentToken1 = 52,
-    BlockCommentToken2 = 53,
-    StarRparen = 54,
-    Identifier = 55,
-    TypeIdentifier = 56,
-    SelfIdentifier = 57,
-    StringContent = 58,
-    Error = 59,
-    SourceFile = 60,
-    ClassItem = 61,
-    FieldDeclarationList = 62,
-    AttributeDeclaration = 63,
-    MethodDeclaration = 64,
-    Parameters = 65,
-    Parameter = 66,
-    Type = 67,
-    Expression = 68,
-    AssignmentExpression = 69,
-    DispatchExpression = 70,
-    Arguments = 71,
-    IfExpression = 72,
-    WhileExpression = 73,
-    Block = 74,
-    LetExpression = 75,
-    CaseExpression = 76,
-    CaseArm = 77,
-    CasePattern = 78,
-    NewExpression = 79,
-    IsvoidExpression = 80,
-    NotExpression = 81,
-    UnaryExpression = 82,
-    BinaryExpression = 83,
-    ParenthesizedExpression = 84,
-    Literal = 85,
-    BooleanLiteral = 86,
-    StringLiteral = 87,
-    InlineComment = 88,
-    BlockComment = 89,
-    AliasFieldIdentifier = 90,
-    SourceFileRepeat1 = 91,
-    FieldDeclarationListRepeat1 = 92,
-    ParametersRepeat1 = 93,
-    ArgumentsRepeat1 = 94,
-    BlockRepeat1 = 95,
-    LetExpressionRepeat1 = 96,
-    CaseExpressionRepeat1 = 97,
-    StringLiteralRepeat1 = 98,
-    BlockCommentRepeat1 = 99,
-    FieldIdentifier = 100,
-}
-
-impl From<u16> for Cool {
-    #[inline(always)]
-    fn from(x: u16) -> Self {
-        num_traits::FromPrimitive::from_u16(x).unwrap_or(Self::Error)
     }
 }
