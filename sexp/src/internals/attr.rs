@@ -2,17 +2,19 @@ use proc_macro2::{Span, TokenStream};
 use quote::ToTokens;
 use syn::{Ident, Token, meta::ParseNestedMeta};
 
-use crate::internals::{case::RenameRule, name::Name, symbol::*};
+use crate::internals::{case::RenameRule, ctx::Ctx, name::Name, symbol::*};
 
-pub(crate) struct Attr<T> {
+pub(crate) struct Attr<'c, T> {
+    ctx: &'c Ctx,
     name: Symbol,
     tokens: TokenStream,
     value: Option<T>,
 }
 
-impl<T> Attr<T> {
-    fn none(name: Symbol) -> Self {
+impl<'c, T> Attr<'c, T> {
+    fn none(ctx: &'c Ctx, name: Symbol) -> Self {
         Attr {
+            ctx,
             name,
             tokens: TokenStream::new(),
             value: None,
@@ -24,7 +26,7 @@ impl<T> Attr<T> {
 
         if self.value.is_some() {
             let msg = format!("duplicate attribute `{}`", self.name);
-            // TODO: error handling
+            self.ctx.error_spanned_by(tokens, msg);
         } else {
             self.tokens = tokens;
             self.value = Some(value);
@@ -56,11 +58,11 @@ impl<T> Attr<T> {
     }
 }
 
-struct BoolAttr(Attr<()>);
+struct BoolAttr<'c>(Attr<'c, ()>);
 
-impl BoolAttr {
-    fn none(name: Symbol) -> BoolAttr {
-        BoolAttr(Attr::none(name))
+impl<'c> BoolAttr<'c> {
+    fn none(ctx: &'c Ctx, name: Symbol) -> Self {
+        BoolAttr(Attr::none(ctx, name))
     }
 
     fn set_true<A: ToTokens>(&mut self, obj: A) {
@@ -81,11 +83,11 @@ pub struct Container {
 
 impl Container {
     /// Extract out the `#[sexp(...)]` attributes for an item.
-    pub fn from_ast(item: &syn::DeriveInput) -> Container {
-        let mut name = Attr::none(RENAME);
-        let mut transparent = BoolAttr::none(TRANSPARENT);
-        let mut rename_all = Attr::none(RENAME_ALL);
-        let mut rename_all_fields = Attr::none(RENAME_ALL_FIELDS);
+    pub fn from_ast(ctx: &Ctx, item: &syn::DeriveInput) -> Container {
+        let mut name = Attr::none(ctx, RENAME);
+        let mut transparent = BoolAttr::none(ctx, TRANSPARENT);
+        let mut rename_all = Attr::none(ctx, RENAME_ALL);
+        let mut rename_all_fields = Attr::none(ctx, RENAME_ALL_FIELDS);
 
         for attr in &item.attrs {
             if attr.path() != SEXP {
@@ -100,37 +102,42 @@ impl Container {
 
             if let Err(err) = attr.parse_nested_meta(|meta| {
                 if meta.path == RENAME {
-                    let rename = get_rename(RENAME, &meta)?;
+                    let rename = get_rename(ctx, RENAME, &meta)?;
                     name.set_opt(&meta.path, rename.as_ref().map(Name::from));
                 } else if meta.path == RENAME_ALL {
-                    if let Some(rename) = get_rename(RENAME_ALL, &meta)? {
+                    if let Some(rename) = get_rename(ctx, RENAME_ALL, &meta)? {
                         match RenameRule::from_str(&rename.value()) {
                             Ok(rule) => rename_all.set(&meta.path, rule),
-                            Err(err) => todo!(),
+                            Err(err) => ctx.error_spanned_by(rename, err),
                         }
                     }
                 } else if meta.path == RENAME_ALL_FIELDS {
-                    let rename = get_rename(RENAME_ALL_FIELDS, &meta)?;
+                    let rename = get_rename(ctx, RENAME_ALL_FIELDS, &meta)?;
 
                     match item.data {
                         syn::Data::Enum(_) => {
                             if let Some(rename) = rename {
                                 match RenameRule::from_str(&rename.value()) {
                                     Ok(rule) => rename_all_fields.set(&meta.path, rule),
-                                    Err(err) => todo!(),
+                                    Err(err) => ctx.error_spanned_by(rename, err),
                                 }
                             }
                         }
                         _ => {
-                            todo!()
+                            let msg = "#[sexp(rename_all_fields)] can only be used on enums";
+                            ctx.syn_error(meta.error(msg));
                         }
                     }
                 } else if meta.path == TRANSPARENT {
                     transparent.set_true(meta.path);
+                } else {
+                    return Err(
+                        meta.error(format_args!("unknown sexp container attribute `{}`", path))
+                    );
                 }
                 Ok(())
             }) {
-                todo!()
+                ctx.syn_error(err);
             }
         }
 
@@ -150,10 +157,10 @@ pub struct Variant {
 }
 
 impl Variant {
-    pub fn from_ast(variant: &syn::Variant) -> Variant {
-        let mut name = Attr::none(RENAME);
-        let mut rename_all = Attr::none(RENAME_ALL);
-        let mut skip = BoolAttr::none(SKIP);
+    pub fn from_ast(ctx: &Ctx, variant: &syn::Variant) -> Variant {
+        let mut name = Attr::none(ctx, RENAME);
+        let mut rename_all = Attr::none(ctx, RENAME_ALL);
+        let mut skip = BoolAttr::none(ctx, SKIP);
 
         for attr in &variant.attrs {
             if attr.path() != SEXP {
@@ -168,21 +175,25 @@ impl Variant {
 
             if let Err(err) = attr.parse_nested_meta(|meta| {
                 if meta.path == RENAME {
-                    let rename = get_rename(RENAME, &meta)?;
+                    let rename = get_rename(ctx, RENAME, &meta)?;
                     name.set_opt(&meta.path, rename.as_ref().map(Name::from));
                 } else if meta.path == RENAME_ALL {
-                    if let Some(rename) = get_rename(RENAME_ALL, &meta)? {
+                    if let Some(rename) = get_rename(ctx, RENAME_ALL, &meta)? {
                         match RenameRule::from_str(&rename.value()) {
                             Ok(rule) => rename_all.set(&meta.path, rule),
-                            Err(err) => todo!(),
+                            Err(err) => ctx.error_spanned_by(rename, err),
                         }
                     }
                 } else if meta.path == SKIP {
                     skip.set_true(&meta.path);
+                } else {
+                    return Err(
+                        meta.error(format_args!("unknown sexp variant attribute `{}`", path))
+                    );
                 }
                 Ok(())
             }) {
-                todo!()
+                ctx.syn_error(err);
             }
         }
 
@@ -202,10 +213,10 @@ pub struct Field {
 
 impl Field {
     /// Extract out the `#[sexp(...) attributes from a struct field]`.
-    pub fn from_ast(idx: usize, field: &syn::Field) -> Field {
-        let mut name = Attr::none(RENAME);
-        let mut skip = BoolAttr::none(SKIP);
-        let mut flatten = BoolAttr::none(FLATTEN);
+    pub fn from_ast(ctx: &Ctx, idx: usize, field: &syn::Field) -> Field {
+        let mut name = Attr::none(ctx, RENAME);
+        let mut skip = BoolAttr::none(ctx, SKIP);
+        let mut flatten = BoolAttr::none(ctx, FLATTEN);
 
         let ident = match &field.ident {
             Some(ident) => Name::from(&unraw(ident)),
@@ -228,16 +239,19 @@ impl Field {
 
             if let Err(err) = attr.parse_nested_meta(|meta| {
                 if meta.path == RENAME {
-                    let rename = get_rename(RENAME, &meta)?;
+                    let rename = get_rename(ctx, RENAME, &meta)?;
                     name.set_opt(&meta.path, rename.as_ref().map(Name::from));
                 } else if meta.path == SKIP {
                     skip.set_true(&meta.path);
                 } else if meta.path == FLATTEN {
                     flatten.set_true(&meta.path);
+                } else {
+                    let path = meta.path.to_token_stream().to_string().replace(' ', "");
+                    return Err(meta.error(format_args!("unknown sexp field attribute `{}`", path)));
                 }
                 Ok(())
             }) {
-                todo!()
+                ctx.syn_error(err);
             }
         }
 
@@ -249,7 +263,11 @@ impl Field {
     }
 }
 
-fn get_rename(attr_name: Symbol, meta: &ParseNestedMeta) -> syn::Result<Option<syn::LitStr>> {
+fn get_rename(
+    ctx: &Ctx,
+    attr_name: Symbol,
+    meta: &ParseNestedMeta,
+) -> syn::Result<Option<syn::LitStr>> {
     let lookahead = meta.input.lookahead1();
 
     if !lookahead.peek(Token![=]) {
@@ -267,8 +285,18 @@ fn get_rename(attr_name: Symbol, meta: &ParseNestedMeta) -> syn::Result<Option<s
             ..
         }) = value
         {
+            if !lit.suffix().is_empty() {
+                ctx.error_spanned_by(
+                    lit,
+                    format!("unexpected suffix `{}` on string literal", suffix),
+                );
+            }
             Ok(Some(lit.clone()))
         } else {
+            ctx.error_spanned_by(
+                expr,
+                format!("expected sexp {} attribute to be a string", attr_name),
+            );
             Ok(None)
         }
     };
