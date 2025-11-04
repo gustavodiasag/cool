@@ -38,9 +38,9 @@ impl RenameRule {
 
     pub fn apply_to_variant(self, variant: &str) -> String {
         match self {
-            None | PascalCase => variant.to_owned(),
-            LowerCase => variant.to_ascii_lowercase(),
+            None | LowerCase => variant.to_ascii_lowercase(),
             UpperCase => variant.to_ascii_uppercase(),
+            PascalCase => variant.to_owned(),
             CamelCase => variant[..1].to_ascii_lowercase() + &variant[1..],
             SnakeCase => {
                 let mut s = String::new();
@@ -87,6 +87,13 @@ impl RenameRule {
             ScreamingSnakeCase => field.to_ascii_uppercase(),
             KebabCase => field.replace('_', "-"),
             ScreamingKebabCase => ScreamingSnakeCase.apply_to_field(field).replace('_', "-"),
+        }
+    }
+
+    pub fn or(self, other: RenameRule) -> RenameRule {
+        match self {
+            None => other,
+            _ => self,
         }
     }
 }

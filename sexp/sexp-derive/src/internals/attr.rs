@@ -43,17 +43,10 @@ impl<'c, T> Attr<'c, T> {
         self.value
     }
 
-    fn get_or(self, other: T) -> T {
+    fn unwrap_or(self, other: T) -> T {
         match self.value {
             Some(v) => v,
             None => other,
-        }
-    }
-
-    fn get_with_tokens(self) -> Option<(TokenStream, T)> {
-        match self.value {
-            Some(v) => Some((self.tokens, v)),
-            None => None,
         }
     }
 }
@@ -76,9 +69,9 @@ impl<'c> BoolAttr<'c> {
 
 pub struct Container {
     name: Name,
-    transparent: bool,
     rename_all: RenameRule,
     rename_all_fields: RenameRule,
+    transparent: bool,
 }
 
 impl Container {
@@ -131,6 +124,7 @@ impl Container {
                 } else if meta.path == TRANSPARENT {
                     transparent.set_true(meta.path);
                 } else {
+                    let path = meta.path.to_token_stream().to_string().replace(' ', "");
                     return Err(
                         meta.error(format_args!("unknown sexp container attribute `{}`", path))
                     );
@@ -142,11 +136,26 @@ impl Container {
         }
 
         Container {
-            name: name.get_or(Name::from(&unraw(&item.ident))),
-            transparent: transparent.get(),
+            name: name.unwrap_or(Name::from(&unraw(&item.ident))),
             rename_all: rename_all.get().unwrap_or_default(),
             rename_all_fields: rename_all_fields.get().unwrap_or_default(),
+            transparent: transparent.get(),
         }
+    }
+    pub fn name(&self) -> &Name {
+        &self.name
+    }
+
+    pub fn rename_all_rule(&self) -> RenameRule {
+        self.rename_all
+    }
+
+    pub fn rename_all_fields_rule(&self) -> RenameRule {
+        self.rename_all_fields
+    }
+
+    pub fn transparent(&self) -> bool {
+        self.transparent
     }
 }
 
@@ -187,6 +196,7 @@ impl Variant {
                 } else if meta.path == SKIP {
                     skip.set_true(&meta.path);
                 } else {
+                    let path = meta.path.to_token_stream().to_string().replace(' ', "");
                     return Err(
                         meta.error(format_args!("unknown sexp variant attribute `{}`", path))
                     );
@@ -198,10 +208,26 @@ impl Variant {
         }
 
         Variant {
-            name: name.get_or(Name::from(&unraw(&variant.ident))),
+            name: name.unwrap_or(Name::from(&unraw(&variant.ident))),
             rename_all: rename_all.get().unwrap_or_default(),
             skip: skip.get(),
         }
+    }
+
+    pub fn name(&self) -> &Name {
+        &self.name
+    }
+
+    pub fn rename_with(&mut self, rule: RenameRule) {
+        self.name.value = rule.apply_to_variant(&self.name.value);
+    }
+
+    pub fn rename_all_rule(&self) -> RenameRule {
+        self.rename_all
+    }
+
+    pub fn skip(&self) -> bool {
+        self.skip
     }
 }
 
@@ -209,6 +235,7 @@ pub struct Field {
     name: Name,
     skip: bool,
     flatten: bool,
+    transparent: bool,
 }
 
 impl Field {
@@ -256,10 +283,31 @@ impl Field {
         }
 
         Field {
-            name: name.get_or(ident),
+            name: name.unwrap_or(ident),
             skip: skip.get(),
             flatten: flatten.get(),
+            transparent: false,
         }
+    }
+
+    pub fn name(&self) -> &Name {
+        &self.name
+    }
+
+    pub fn rename_with(&mut self, rule: RenameRule) {
+        self.name.value = rule.apply_to_field(&self.name.value);
+    }
+
+    pub fn skip(&self) -> bool {
+        self.skip
+    }
+
+    pub fn flatten(&self) -> bool {
+        self.flatten
+    }
+
+    pub fn transparent(&self) -> bool {
+        self.transparent
     }
 }
 
@@ -285,7 +333,8 @@ fn get_rename(
             ..
         }) = value
         {
-            if !lit.suffix().is_empty() {
+            let suffix = lit.suffix();
+            if !suffix.is_empty() {
                 ctx.error_spanned_by(
                     lit,
                     format!("unexpected suffix `{}` on string literal", suffix),

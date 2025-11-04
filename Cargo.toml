@@ -1,2 +1,18 @@
 [workspace]
-members = ["sexp", "compiler"]
+members = [
+  "compiler",
+  "sexp/*"
+]
+
+[workspace.dependencies]
+itoa = { version = "1.0", default-features = false }
+num-traits = { version = "0.2", default-features = false }
+num-derive = { version = "0.3", default-features = false }
+phf = { version = "0.12.1", default-features = false, features = ["macros"] }
+proc-macro2 = { version = "1" }
+quote = "1.0"
+rustc-hash = { version = "2.1.1", default-features = false }
+ryu = { version = "1.0", default-features = false}
+syn = "2.0"
+tree-sitter = { version = "0.25.9", default-features = false }
+tree-sitter-cool = { version = "0.2.0", default-features = false }

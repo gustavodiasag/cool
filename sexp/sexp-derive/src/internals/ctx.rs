@@ -43,7 +43,7 @@ impl Ctx {
 
 impl Drop for Ctx {
     fn drop(&mut self) {
-        if !thread::panicking() && self.errors.is_some() {
+        if !thread::panicking() && self.errors.borrow().is_some() {
             panic!("forgot to check for errors");
         }
     }

@@ -346,15 +346,24 @@ impl Converter<'_, '_> {
                 Ok(ty.into())
             }
             Cool::Identifier | Cool::FieldIdentifier | Cool::SelfIdentifier => {
-                let to_ast = |ident: ast::Ident| {
-                    println!("{:?}", node.parent().unwrap().rule());
+                let to_ast = |ident| {
                     if node.parent().unwrap().rule().is_expr() {
                         ast::Expr::Ident(ident).into()
                     } else {
                         ident.into()
                     }
                 };
-                self.convert_ident(node).map(to_ast).ok_or(())
+                self.convert_ident(node)
+                    .map(|ident| {
+                        if let Some(parent) = node.parent() {
+                            if parent.rule().is_expr() {
+                                ast::Expr::Ident(ident).into()
+                            } else {
+                                ident.into()
+                            }
+                        }
+                    })
+                    .ok_or(())
             }
             Cool::Error => {
                 self.error(Error::InvalidSyntax);
