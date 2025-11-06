@@ -59,9 +59,7 @@ fn get_body(container: &Container, this: &syn::Path) -> TokenStream {
             Data::Enum(variants) => get_enum(this, variants, &container.attrs),
             Data::Struct(Style::Struct, fields) => get_struct(fields, &container.attrs),
             Data::Struct(Style::Tuple, fields) => get_tuple_struct(fields, &container.attrs),
-            Data::Struct(Style::NewType, fields) => {
-                get_newtype_struct(&fields[0], &container.attrs)
-            }
+            Data::Struct(Style::NewType, _) => get_newtype_struct(&container.attrs),
             Data::Struct(Style::Unit, _) => get_unit_struct(&container.attrs),
         }
     }
@@ -115,7 +113,7 @@ fn get_variant(
         let err = {
             let msg = format!(
                 "the enum variant {}::{} cannot be represented",
-                type_ident(this),
+                raw_ident(this),
                 variant_ident
             );
             quote!(Err(std::io::Error::other(#msg)))
@@ -155,18 +153,21 @@ fn get_variant(
             }
         };
         let body = {
-            let type_name = attrs.name();
             let variant_name = variant.attrs.name();
 
             match filtered_variant_style(variant) {
                 Style::Unit => {
-                    quote_block!(s.serialize_unit_variant(#type_name, #idx, #variant_name))
+                    quote_block!(s.cell(#variant_name, |_| Ok(())))
                 }
                 Style::NewType => {
-                    quote_block!(s.serialize_newtype_variant(#type_name, #idx, #variant_name, field))
+                    quote_block! {
+                        s.cell(#variant_name, |s| {
+                            s.serialize_tuple_field(field)?;
+                        })
+                    }
                 }
-                Style::Tuple => get_tuple_variant(type_name, idx, variant_name, &variant.fields),
-                Style::Struct => get_struct_variant(type_name, idx, variant_name, &variant.fields),
+                Style::Tuple => get_tuple_variant(variant_name, &variant.fields),
+                Style::Struct => get_struct_variant(variant_name, &variant.fields),
             }
         };
         quote! {
@@ -175,36 +176,23 @@ fn get_variant(
     }
 }
 
-fn get_tuple_variant(
-    type_name: &Name,
-    idx: u32,
-    variant_name: &Name,
-    fields: &[Field],
-) -> TokenStream {
+fn get_tuple_variant(variant_name: &Name, fields: &[Field]) -> TokenStream {
     let stmts = get_tuple_fields(fields, true);
-    let len = {
-        let count = fields.iter().filter(|field| !field.attrs.skip()).count();
-        quote!(#count)
-    };
+
     quote_block! {
-        s.serialize_tuple_variant(#type_name, #idx, #variant_name, #len)?;
-        #(#stmts)*
-        s.end_cell()
+        s.cell(#variant_name, |s| {
+            #(#stmts)*
+        })
     }
 }
 
-fn get_struct_variant(
-    type_name: &Name,
-    idx: u32,
-    variant_name: &Name,
-    fields: &[Field],
-) -> TokenStream {
+fn get_struct_variant(variant_name: &Name, fields: &[Field]) -> TokenStream {
     let stmts = get_struct_fields(fields, true);
 
     quote_block! {
-        s.serialize_struct_variant(#variant_name)?;
-        #(#stmts)*
-        s.end_cell()
+        s.cell(#variant_name, |s| {
+            #(#stmts)*
+        })
     }
 }
 
@@ -213,9 +201,9 @@ fn get_struct(fields: &[Field], attrs: &attr::Container) -> TokenStream {
     let stmts = get_struct_fields(fields, false);
 
     quote_block! {
-        s.serialize_struct(#type_name)?;
-        #(#stmts)*
-        s.end_cell()
+        s.cell(#type_name, |s| {
+            #(#stmts)*
+        })
     }
 }
 
@@ -224,13 +212,13 @@ fn get_tuple_struct(fields: &[Field], attrs: &attr::Container) -> TokenStream {
     let stmts = get_tuple_fields(fields, false);
 
     quote_block! {
-        s.serialize_tuple_struct(#type_name)?;
-        #(#stmts)*
-        s.end_cell()
+        s.cell(#type_name, |s| {
+            #(#stmts)*
+        })
     }
 }
 
-fn get_newtype_struct(field: &Field, attrs: &attr::Container) -> TokenStream {
+fn get_newtype_struct(attrs: &attr::Container) -> TokenStream {
     let type_name = attrs.name();
 
     let field_expr = {
@@ -240,16 +228,17 @@ fn get_newtype_struct(field: &Field, attrs: &attr::Container) -> TokenStream {
         });
         quote!(&self.#member)
     };
-    let span = field.original.span();
 
-    quote_spanned!(span=> s.serialize_newtype_struct(#type_name, #field_expr))
+    quote_block! {
+        s.cell(#type_name, |s| s.serialize_tuple_field(#field_expr))
+    }
 }
 
 fn get_unit_struct(attrs: &attr::Container) -> TokenStream {
     let type_name = attrs.name();
 
     quote! {
-        s.serialize_unit_struct(#type_name)
+        s.cell(#type_name, |_| Ok(()))
     }
 }
 
@@ -296,7 +285,7 @@ fn get_struct_fields(fields: &[Field], is_enum: bool) -> Vec<TokenStream> {
         .collect()
 }
 
-fn type_ident(path: &syn::Path) -> String {
+fn raw_ident(path: &syn::Path) -> String {
     path.segments.last().unwrap().ident.to_string()
 }
 

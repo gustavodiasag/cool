@@ -3,35 +3,29 @@ use std::collections::VecDeque;
 use crate::{Result, SexpSerializer, ToSexp};
 
 macro_rules! primitive_impls {
-    ($($ty:ty, $func:ident),+) => {
+    (
+        $($func:ident => $($ty:ty),+);+ $(;)?
+    ) => {
         $(
-            impl ToSexp for $ty {
-                fn to_sexp<S>(&self, serializer: &mut S) -> Result<()>
-                where
-                    S: SexpSerializer,
-                {
-                    serializer.$func(*self)
+            $(
+                impl ToSexp for $ty {
+                    fn to_sexp<S>(&self, s: &mut S) -> Result<()>
+                    where
+                        S: SexpSerializer,
+                    {
+                        s.$func(*self)
+                    }
                 }
-            }
+            )+
         )+
     };
 }
 
 primitive_impls! {
-    bool, serialize_bool,
-    u8, serialize_u8,
-    u16, serialize_u16,
-    u32, serialize_u32,
-    u64, serialize_u64,
-    u128, serialize_u128,
-    i8, serialize_i8,
-    i16, serialize_i16,
-    i32, serialize_i32,
-    i64, serialize_i64,
-    i128, serialize_i128,
-    f32, serialize_f32,
-    f64, serialize_f64,
-    char, serialize_char
+    serialize_bool => bool;
+    serialize_num => i8, i16, i32, i64, i128, u8, u16, u32, u64, u128;
+    serialize_float => f32, f64;
+    serialize_char => char;
 }
 
 impl ToSexp for str {
